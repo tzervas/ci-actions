@@ -1,0 +1,50 @@
+name: Patch Generation
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+        description: Docker image to patch
+      requirements-file:
+        required: false
+        type: string
+        default: requirements.txt
+        description: Path to Python requirements file
+      max-concurrent-patches:
+        required: false
+        type: number
+        default: 2
+        description: Maximum concurrent patch generations
+
+permissions:
+  contents: read
+
+jobs:
+  generate-patches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pipdeptree
+      - name: Download Trivy scan results
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-results
+          path: .
+      - name: Generate patch suggestions
+        run: |
+          python scripts/generate_patches.py trivy-results.json ${{ inputs.requirements-file }}
+      - name: Upload patch suggestions
+        uses: actions/upload-artifact@v3
+        with:
+          name: patch-suggestions
+          path: patch-suggestions.json

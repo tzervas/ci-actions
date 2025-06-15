@@ -1,0 +1,30 @@
+name: Rollback
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      deployment-name:
+        required: true
+        type: string
+        description: Kubernetes deployment to rollback
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+      - name: Rollback deployment
+        run: |
+          python scripts/rollback_deployment.py ${{ inputs.deployment-name }}
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}

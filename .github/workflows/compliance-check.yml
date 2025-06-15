@@ -1,0 +1,28 @@
+name: Compliance Check
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      source-dir:
+        required: false
+        type: string
+        default: .
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+      - name: Run compliance checks
+        run: |
+          python scripts/check_compliance.py ${{ inputs.source-dir }}

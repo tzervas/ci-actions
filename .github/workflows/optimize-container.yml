@@ -1,0 +1,30 @@
+name: Optimize Container
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+        description: Docker image to optimize
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install docker-slim
+        run: |
+          curl -sL https://raw.githubusercontent.com/docker-slim/docker-slim/master/scripts/install-dockerslim.sh | sudo bash
+      - name: Optimize image
+        run: |
+          python scripts/optimize_image.py ${{ inputs.image-name }}
+      - name: Push optimized image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ inputs.image-name }}-slim:latest
