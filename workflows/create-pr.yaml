@@ -1,0 +1,71 @@
+name: Create PR from Feature Branch
+
+on:
+  push:
+    branches:
+      - 'feature/*'
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Generate PR title and description
+        id: generate-pr
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const branch = context.ref.replace('refs/heads/', '');
+            const base = 'main'; // Adjust if your base branch is different
+
+            // Get commits between base and current branch
+            const commits = await github.rest.repos.listCommits({
+              owner,
+              repo,
+              sha: `${base}..${branch}`,
+              per_page: 100
+            });
+
+            if (commits.data.length === 0) {
+              console.log('No new commits');
+              return;
+            }
+
+            // Extract title from the first commit message
+            const title = commits.data[0].commit.message.split('\n')[0];
+
+            // Generate description from all commit messages
+            const body = commits.data.map(c => `- ${c.commit.message}`).join('\n');
+
+            // Check if a PR already exists
+            const pulls = await github.rest.pulls.list({
+              owner,
+              repo,
+              head: branch,
+              base,
+              state: 'open'
+            });
+
+            if (pulls.data.length > 0) {
+              console.log('PR already exists');
+              return;
+            }
+
+            // Create a new PR
+            const pr = await github.rest.pulls.create({
+              owner,
+              repo,
+              title,
+              head: branch,
+              base,
+              body
+            });
+
+            // Output PR number
+            return pr.data.number;
+
+      - name: Log PR creation
+        run: echo "Pull Request #${{ steps.generate-pr.outputs.result }} created."
