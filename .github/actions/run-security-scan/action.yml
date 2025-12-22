@@ -1,0 +1,66 @@
+name: Run Security Scan
+description: Run security vulnerability scans using multiple tools
+
+inputs:
+  scan-type:
+    description: 'Type of scan to run (trivy, snyk, or both)'
+    required: false
+    default: 'trivy'
+  target:
+    description: 'Scan target (filesystem, image, etc.)'
+    required: false
+    default: 'filesystem'
+  target-path:
+    description: 'Path or image to scan'
+    required: false
+    default: '.'
+  severity:
+    description: 'Minimum severity to report (UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL)'
+    required: false
+    default: 'HIGH,CRITICAL'
+  output-format:
+    description: 'Output format (table, json, sarif)'
+    required: false
+    default: 'table'
+  fail-on-findings:
+    description: 'Fail if vulnerabilities are found'
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Run Trivy scan
+      if: inputs.scan-type == 'trivy' || inputs.scan-type == 'both'
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: ${{ inputs.target }}
+        scan-ref: ${{ inputs.target-path }}
+        format: ${{ inputs.output-format }}
+        severity: ${{ inputs.severity }}
+        exit-code: ${{ inputs.fail-on-findings == 'true' && '1' || '0' }}
+        output: 'trivy-results.${{ inputs.output-format }}'
+    
+    - name: Run Snyk scan
+      if: inputs.scan-type == 'snyk' || inputs.scan-type == 'both'
+      shell: bash
+      run: |
+        if [ -n "$SNYK_TOKEN" ]; then
+          npm install -g snyk
+          snyk test --severity-threshold=high ${{ inputs.target-path }} || exit ${{ inputs.fail-on-findings == 'true' && '1' || '0' }}
+        else
+          echo "⚠️ SNYK_TOKEN not set, skipping Snyk scan"
+        fi
+      env:
+        SNYK_TOKEN: ${{ env.SNYK_TOKEN }}
+    
+    - name: Upload scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-scan-results
+        path: |
+          trivy-results.*
+          snyk-results.*
+        retention-days: 30
+        if-no-files-found: ignore

@@ -1,0 +1,170 @@
+name: Docker Build and Push
+description: Reusable workflow for building and pushing multi-architecture Docker images
+
+on:
+  workflow_call:
+    inputs:
+      dockerfile:
+        description: 'Path to Dockerfile'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      context:
+        description: 'Build context path'
+        required: false
+        type: string
+        default: '.'
+      image-name:
+        description: 'Image name (without registry)'
+        required: true
+        type: string
+      tags:
+        description: 'Image tags (comma-separated)'
+        required: false
+        type: string
+        default: 'latest'
+      platforms:
+        description: 'Target platforms (comma-separated)'
+        required: false
+        type: string
+        default: 'linux/amd64'
+      push:
+        description: 'Push image to registry'
+        required: false
+        type: boolean
+        default: false
+      registry:
+        description: 'Container registry (docker.io, ghcr.io, etc.)'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      build-args:
+        description: 'Build arguments (comma-separated KEY=VALUE pairs)'
+        required: false
+        type: string
+        default: ''
+      cache-enabled:
+        description: 'Enable build cache'
+        required: false
+        type: boolean
+        default: true
+      scan-image:
+        description: 'Scan image for vulnerabilities after build'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_PASSWORD:
+        required: false
+      GITHUB_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Docker Buildx
+        uses: ./.github/actions/setup-docker-buildx
+        with:
+          platforms: ${{ inputs.platforms }}
+      
+      - name: Login to GitHub Container Registry
+        if: inputs.push && inputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Login to Docker Hub
+        if: inputs.push && inputs.registry == 'docker.io'
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      
+      - name: Login to custom registry
+        if: inputs.push && inputs.registry != 'ghcr.io' && inputs.registry != 'docker.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}
+          tags: |
+            type=raw,value=${{ inputs.tags }}
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      
+      - name: Parse build args
+        id: build-args
+        run: |
+          BUILD_ARGS=""
+          if [ -n "${{ inputs.build-args }}" ]; then
+            IFS=',' read -ra ARGS <<< "${{ inputs.build-args }}"
+            for arg in "${ARGS[@]}"; do
+              BUILD_ARGS="${BUILD_ARGS} --build-arg ${arg}"
+            done
+          fi
+          echo "args=${BUILD_ARGS}" >> $GITHUB_OUTPUT
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: ${{ inputs.cache-enabled && 'type=gha' || '' }}
+          cache-to: ${{ inputs.cache-enabled && 'type=gha,mode=max' || '' }}
+          build-args: ${{ steps.build-args.outputs.args }}
+      
+      - name: Scan image for vulnerabilities
+        if: inputs.scan-image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}:${{ inputs.tags }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+      
+      - name: Upload scan results
+        if: inputs.scan-image
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: trivy-results.sarif
+          retention-days: 30
+        continue-on-error: true
+      
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ inputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** ${{ inputs.platforms }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Pushed:** ${{ inputs.push }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Scanned:** ${{ inputs.scan-image }}" >> $GITHUB_STEP_SUMMARY

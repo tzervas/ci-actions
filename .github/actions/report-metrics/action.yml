@@ -1,0 +1,55 @@
+name: Report Build Metrics
+description: Generate and report build metrics to step summary
+
+inputs:
+  job-name:
+    description: 'Name of the job for reporting'
+    required: true
+  architecture:
+    description: 'Architecture being built (e.g., amd64, arm64)'
+    required: false
+    default: ''
+  runner:
+    description: 'Runner type'
+    required: false
+    default: 'ubuntu-latest'
+  include-system-info:
+    description: 'Include system resource information'
+    required: false
+    default: 'true'
+  custom-metrics:
+    description: 'Additional custom metrics (JSON format)'
+    required: false
+    default: '{}'
+
+runs:
+  using: composite
+  steps:
+    - name: Generate metrics report
+      shell: bash
+      run: |
+        echo "## ${{ inputs.job-name }} Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -n "${{ inputs.architecture }}" ]; then
+          echo "**Architecture:** ${{ inputs.architecture }}" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "**Runner:** ${{ inputs.runner }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ inputs.include-system-info }}" = "true" ]; then
+          echo "### System Resources" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "Memory:" >> $GITHUB_STEP_SUMMARY
+          free -h >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "CPU:" >> $GITHUB_STEP_SUMMARY
+          lscpu | grep -E "^CPU\(s\)|Model name|Thread|Core" >> $GITHUB_STEP_SUMMARY || echo "CPU info not available" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Disk:" >> $GITHUB_STEP_SUMMARY
+          df -h / >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Load:" >> $GITHUB_STEP_SUMMARY
+          uptime >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi

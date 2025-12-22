@@ -1,0 +1,56 @@
+name: Setup Rust
+description: Setup Rust toolchain with caching
+
+inputs:
+  toolchain:
+    description: 'Rust toolchain to use (stable, nightly, or specific version)'
+    required: false
+    default: 'stable'
+  components:
+    description: 'Additional components to install (comma-separated)'
+    required: false
+    default: ''
+  targets:
+    description: 'Additional targets to install (comma-separated)'
+    required: false
+    default: ''
+  cache-key:
+    description: 'Additional cache key suffix'
+    required: false
+    default: ''
+  enable-cache:
+    description: 'Enable Rust caching'
+    required: false
+    default: 'true'
+
+outputs:
+  toolchain-version:
+    description: 'The installed Rust toolchain version'
+    value: ${{ steps.toolchain.outputs.version }}
+  cache-hit:
+    description: 'Whether cache was hit'
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Rust toolchain
+      id: toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+    
+    - name: Rust cache
+      id: cache
+      if: inputs.enable-cache == 'true'
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.cache-key }}
+    
+    - name: Show Rust version
+      shell: bash
+      run: |
+        rustc --version
+        cargo --version

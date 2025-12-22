@@ -1,0 +1,43 @@
+name: Setup Python with uv
+description: Setup Python environment with uv package manager
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  uv-version:
+    description: 'uv version to use'
+    required: false
+    default: '0.7.18'
+  cache:
+    description: 'Enable caching for uv dependencies'
+    required: false
+    default: 'true'
+
+outputs:
+  python-version:
+    description: 'The installed Python version'
+    value: ${{ steps.setup-python.outputs.python-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python ${{ inputs.python-version }}
+      id: setup-python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
+    
+    - name: Install uv
+      shell: bash
+      run: |
+        curl -LsSf https://astral.sh/uv/${{ inputs.uv-version }}/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+    
+    - name: Verify installation
+      shell: bash
+      run: |
+        python --version
+        uv --version
