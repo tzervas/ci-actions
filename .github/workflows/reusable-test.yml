@@ -1,0 +1,188 @@
+name: Test Runner
+description: Reusable workflow for running tests with matrix support
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: 'Programming language (python, rust, node, go)'
+        required: true
+        type: string
+      test-command:
+        description: 'Command to run tests'
+        required: false
+        type: string
+        default: ''
+      test-type:
+        description: 'Type of tests (unit, integration, e2e, all)'
+        required: false
+        type: string
+        default: 'all'
+      coverage-enabled:
+        description: 'Enable code coverage reporting'
+        required: false
+        type: boolean
+        default: true
+      coverage-format:
+        description: 'Coverage format (xml, html, lcov)'
+        required: false
+        type: string
+        default: 'xml'
+      upload-coverage:
+        description: 'Upload coverage to Codecov'
+        required: false
+        type: boolean
+        default: false
+      matrix-strategy:
+        description: 'JSON matrix strategy for multi-version testing'
+        required: false
+        type: string
+        default: ''
+      timeout-minutes:
+        description: 'Test timeout in minutes'
+        required: false
+        type: number
+        default: 30
+      working-directory:
+        description: 'Working directory for tests'
+        required: false
+        type: string
+        default: '.'
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    strategy:
+      matrix: ${{ fromJSON(inputs.matrix-strategy || '{"include":[{}]}') }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Setup environment
+      - name: Setup Python
+        if: inputs.language == 'python'
+        uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: ${{ matrix.python-version || '3.12' }}
+      
+      - name: Install Python dependencies
+        if: inputs.language == 'python'
+        run: |
+          uv sync --python ${{ matrix.python-version || '3.12' }}
+      
+      - name: Setup Rust
+        if: inputs.language == 'rust'
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: ${{ matrix.rust-version || 'stable' }}
+      
+      - name: Setup Node.js
+        if: inputs.language == 'node'
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: ${{ matrix.node-version || '20' }}
+      
+      - name: Install Node.js dependencies
+        if: inputs.language == 'node'
+        run: npm install
+      
+      - name: Setup Go
+        if: inputs.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version || 'stable' }}
+      
+      - name: Install Go dependencies
+        if: inputs.language == 'go'
+        run: go mod download
+      
+      # Run tests - Python
+      - name: Run Python tests
+        if: inputs.language == 'python' && inputs.test-command == ''
+        run: |
+          if [ "${{ inputs.coverage-enabled }}" = "true" ]; then
+            uv run pytest --cov --cov-report=${{ inputs.coverage-format }}
+          else
+            uv run pytest
+          fi
+      
+      # Run tests - Rust
+      - name: Run Rust tests
+        if: inputs.language == 'rust' && inputs.test-command == ''
+        run: |
+          if [ "${{ inputs.test-type }}" = "unit" ]; then
+            cargo test --lib --bins
+          elif [ "${{ inputs.test-type }}" = "integration" ]; then
+            cargo test --tests
+          else
+            cargo test --verbose
+          fi
+      
+      # Run tests - Node.js
+      - name: Run Node.js tests
+        if: inputs.language == 'node' && inputs.test-command == ''
+        run: |
+          if [ "${{ inputs.coverage-enabled }}" = "true" ]; then
+            npm run test:coverage
+          else
+            npm test
+          fi
+      
+      # Run tests - Go
+      - name: Run Go tests
+        if: inputs.language == 'go' && inputs.test-command == ''
+        run: |
+          if [ "${{ inputs.coverage-enabled }}" = "true" ]; then
+            go test -v -coverprofile=coverage.out ./...
+            go tool cover -html=coverage.out -o coverage.html
+          else
+            go test -v ./...
+          fi
+      
+      # Custom test command
+      - name: Run custom test command
+        if: inputs.test-command != ''
+        run: ${{ inputs.test-command }}
+      
+      # Upload coverage
+      - name: Upload coverage to Codecov
+        if: inputs.upload-coverage && inputs.coverage-enabled
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.${{ inputs.coverage-format }}
+          fail_ci_if_error: false
+          working-directory: ${{ inputs.working-directory }}
+      
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.language }}-${{ strategy.job-index }}
+          path: |
+            **/test-results/
+            **/coverage.*
+            **/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+      
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Language:** ${{ inputs.language }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Type:** ${{ inputs.test-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage Enabled:** ${{ inputs.coverage-enabled }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY

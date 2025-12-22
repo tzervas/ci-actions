@@ -1,0 +1,122 @@
+name: Language Setup and Install
+description: Reusable workflow for setting up language environments and installing dependencies
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: 'Programming language (python, rust, node, go)'
+        required: true
+        type: string
+      language-version:
+        description: 'Language version to use'
+        required: false
+        type: string
+        default: ''
+      package-manager:
+        description: 'Package manager to use (pip, uv, npm, yarn, pnpm, cargo)'
+        required: false
+        type: string
+        default: ''
+      install-command:
+        description: 'Custom install command (overrides default)'
+        required: false
+        type: string
+        default: ''
+      cache-enabled:
+        description: 'Enable dependency caching'
+        required: false
+        type: boolean
+        default: true
+      working-directory:
+        description: 'Working directory for installation'
+        required: false
+        type: string
+        default: '.'
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Python setup
+      - name: Setup Python with uv
+        if: inputs.language == 'python' && (inputs.package-manager == 'uv' || inputs.package-manager == '')
+        uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: ${{ inputs.language-version || '3.12' }}
+          cache: ${{ inputs.cache-enabled }}
+      
+      - name: Setup Python with pip
+        if: inputs.language == 'python' && inputs.package-manager == 'pip'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.language-version || '3.12' }}
+          cache: ${{ inputs.cache-enabled && 'pip' || '' }}
+      
+      # Rust setup
+      - name: Setup Rust
+        if: inputs.language == 'rust'
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: ${{ inputs.language-version || 'stable' }}
+          enable-cache: ${{ inputs.cache-enabled }}
+      
+      # Node.js setup
+      - name: Setup Node.js
+        if: inputs.language == 'node'
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: ${{ inputs.language-version || '20' }}
+          package-manager: ${{ inputs.package-manager || 'npm' }}
+          cache: ${{ inputs.cache-enabled }}
+      
+      # Go setup
+      - name: Setup Go
+        if: inputs.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.language-version || 'stable' }}
+          cache: ${{ inputs.cache-enabled }}
+      
+      # Install dependencies
+      - name: Install dependencies (Python uv)
+        if: inputs.language == 'python' && inputs.package-manager == 'uv' && inputs.install-command == ''
+        run: uv sync --python ${{ inputs.language-version || '3.12' }}
+      
+      - name: Install dependencies (Python pip)
+        if: inputs.language == 'python' && inputs.package-manager == 'pip' && inputs.install-command == ''
+        run: |
+          python -m pip install --upgrade pip
+          [ -f requirements.txt ] && pip install -r requirements.txt || echo "No requirements.txt found"
+      
+      - name: Install dependencies (Rust)
+        if: inputs.language == 'rust' && inputs.install-command == ''
+        run: cargo fetch
+      
+      - name: Install dependencies (Node.js)
+        if: inputs.language == 'node' && inputs.install-command == ''
+        run: ${{ inputs.package-manager || 'npm' }} install
+      
+      - name: Install dependencies (Go)
+        if: inputs.language == 'go' && inputs.install-command == ''
+        run: go mod download
+      
+      - name: Run custom install command
+        if: inputs.install-command != ''
+        run: ${{ inputs.install-command }}
+      
+      - name: Verify installation
+        run: |
+          echo "✅ Environment setup complete"
+          echo "Language: ${{ inputs.language }}"
+          echo "Version: ${{ inputs.language-version }}"
+          echo "Package Manager: ${{ inputs.package-manager }}"

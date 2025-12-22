@@ -1,0 +1,126 @@
+name: Complete CI/CD Example
+description: Example workflow demonstrating all reusable components
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+jobs:
+  # Stage 1: Pre-flight checks
+  pre-checks:
+    name: Pre-flight Checks
+    uses: ./.github/workflows/reusable-quality-checks.yml
+    with:
+      language: python
+      language-version: '3.12'
+      checks: 'lint,format,type'
+      fail-on-error: true
+
+  # Stage 2: Security scanning (parallel with tests)
+  security-scan:
+    name: Security Scan
+    uses: ./.github/workflows/reusable-security-scan.yml
+    with:
+      scan-targets: 'code,dependencies'
+      severity-threshold: 'HIGH'
+      fail-on-findings: false
+
+  # Stage 3: Testing with multiple versions
+  test:
+    name: Test Suite
+    needs: pre-checks
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      language: python
+      coverage-enabled: true
+      upload-coverage: true
+      matrix-strategy: |
+        {
+          "python-version": ["3.10", "3.11", "3.12"]
+        }
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Stage 4: Multi-architecture build (only on main/release)
+  multiarch-build:
+    name: Multi-Arch Build
+    needs: [test, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'release'
+    uses: ./.github/workflows/reusable-multiarch-build.yml
+    with:
+      language: rust
+      architectures: 'amd64,arm64'
+      artifact-name: 'binaries'
+      artifact-paths: |
+        target/release/binary
+        target/aarch64-unknown-linux-gnu/release/binary
+
+  # Stage 5: Docker image build and push
+  docker-build:
+    name: Docker Build
+    needs: [test, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'release'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    with:
+      image-name: 'my-app'
+      dockerfile: 'Dockerfile'
+      context: '.'
+      tags: |
+        latest
+        ${{ github.sha }}
+        ${{ github.ref_name }}
+      platforms: 'linux/amd64,linux/arm64'
+      push: true
+      scan-image: true
+      build-args: 'VERSION=${{ github.ref_name }},BUILD_DATE=${{ github.event.head_commit.timestamp }}'
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 6: Container security scan
+  container-security:
+    name: Container Security
+    needs: docker-build
+    if: github.event_name == 'push' || github.event_name == 'release'
+    uses: ./.github/workflows/reusable-security-scan.yml
+    with:
+      scan-targets: 'container'
+      container-image: 'ghcr.io/${{ github.repository_owner }}/my-app:latest'
+      severity-threshold: 'CRITICAL'
+      fail-on-findings: false
+
+  # Stage 7: Summary
+  summary:
+    name: Pipeline Summary
+    needs: [pre-checks, security-scan, test, multiarch-build, docker-build, container-security]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "# CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Pre-checks: ${{ needs.pre-checks.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Scan: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Multi-arch Build: ${{ needs.multiarch-build.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Build: ${{ needs.docker-build.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Container Security: ${{ needs.container-security.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Determine overall status
+          if [[ "${{ needs.pre-checks.result }}" == "failure" ]] || \
+             [[ "${{ needs.test.result }}" == "failure" ]]; then
+            echo "❌ **Pipeline Failed**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
+            echo "⚠️ **Build Failed**" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ **Pipeline Passed**" >> $GITHUB_STEP_SUMMARY
+          fi

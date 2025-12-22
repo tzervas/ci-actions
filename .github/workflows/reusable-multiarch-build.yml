@@ -1,0 +1,178 @@
+name: Multi-Architecture Build
+description: Reusable workflow for building and testing across multiple architectures
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: 'Programming language (python, rust, node, go)'
+        required: true
+        type: string
+      architectures:
+        description: 'Architectures to build (comma-separated: amd64,arm64)'
+        required: false
+        type: string
+        default: 'amd64'
+      build-command:
+        description: 'Build command to execute'
+        required: false
+        type: string
+        default: ''
+      test-command:
+        description: 'Test command to execute'
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        description: 'Name for build artifacts'
+        required: false
+        type: string
+        default: 'build-artifacts'
+      artifact-paths:
+        description: 'Paths to upload as artifacts (newline-separated)'
+        required: false
+        type: string
+        default: ''
+      timeout-minutes:
+        description: 'Build timeout in minutes'
+        required: false
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  build-matrix:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-latest
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup QEMU for cross-compilation
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+      
+      # Setup language environment
+      - name: Setup Python
+        if: inputs.language == 'python'
+        uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: '3.12'
+      
+      - name: Setup Rust
+        if: inputs.language == 'rust'
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: 'stable'
+          targets: ${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || '' }}
+      
+      - name: Setup Node.js
+        if: inputs.language == 'node'
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: '20'
+      
+      - name: Setup Go
+        if: inputs.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+      
+      - name: Configure build for architecture
+        run: |
+          echo "Building for ${{ matrix.arch }}"
+          echo "ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
+          
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            echo "CARGO_TARGET=aarch64-unknown-linux-gnu" >> $GITHUB_ENV
+            echo "GOARCH=arm64" >> $GITHUB_ENV
+            echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          else
+            echo "CARGO_TARGET=x86_64-unknown-linux-gnu" >> $GITHUB_ENV
+            echo "GOARCH=amd64" >> $GITHUB_ENV
+          fi
+      
+      # Build steps by language
+      - name: Build (Python)
+        if: inputs.language == 'python' && inputs.build-command == ''
+        run: uv sync
+      
+      - name: Build (Rust)
+        if: inputs.language == 'rust' && inputs.build-command == ''
+        run: |
+          if [ -n "$CARGO_TARGET" ]; then
+            cargo build --release --target $CARGO_TARGET --verbose
+          else
+            cargo build --release --verbose
+          fi
+      
+      - name: Build (Node.js)
+        if: inputs.language == 'node' && inputs.build-command == ''
+        run: npm run build
+      
+      - name: Build (Go)
+        if: inputs.language == 'go' && inputs.build-command == ''
+        run: go build -v ./...
+      
+      - name: Run custom build command
+        if: inputs.build-command != ''
+        run: ${{ inputs.build-command }}
+      
+      # Test steps
+      - name: Test (Python)
+        if: inputs.language == 'python' && inputs.test-command == ''
+        run: uv run pytest -v
+      
+      - name: Test (Rust)
+        if: inputs.language == 'rust' && inputs.test-command == ''
+        run: cargo test --verbose
+      
+      - name: Test (Node.js)
+        if: inputs.language == 'node' && inputs.test-command == ''
+        run: npm test
+      
+      - name: Test (Go)
+        if: inputs.language == 'go' && inputs.test-command == ''
+        run: go test -v ./...
+      
+      - name: Run custom test command
+        if: inputs.test-command != ''
+        run: ${{ inputs.test-command }}
+      
+      # Upload artifacts
+      - name: Upload build artifacts
+        if: inputs.artifact-paths != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}-${{ matrix.arch }}
+          path: ${{ inputs.artifact-paths }}
+          retention-days: 7
+      
+      - name: Report metrics
+        if: always()
+        uses: ./.github/actions/report-metrics
+        with:
+          job-name: 'Build ${{ inputs.language }}'
+          architecture: ${{ matrix.arch }}
+          runner: ${{ matrix.runner }}
+      
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## ${{ matrix.arch }} Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Language:** ${{ inputs.language }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** ${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

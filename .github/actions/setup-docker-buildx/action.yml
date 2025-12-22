@@ -1,0 +1,39 @@
+name: Setup Docker Buildx with QEMU
+description: Setup Docker Buildx with multi-architecture support
+
+inputs:
+  platforms:
+    description: 'Platforms to enable (comma-separated, e.g., linux/amd64,linux/arm64)'
+    required: false
+    default: 'linux/amd64,linux/arm64'
+  buildx-version:
+    description: 'Buildx version to use'
+    required: false
+    default: 'latest'
+  enable-qemu:
+    description: 'Enable QEMU for multi-arch builds'
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up QEMU
+      if: inputs.enable-qemu == 'true'
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: ${{ inputs.platforms }}
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        version: ${{ inputs.buildx-version }}
+        driver-opts: |
+          image=moby/buildkit:latest
+          network=host
+    
+    - name: Verify Docker Buildx
+      shell: bash
+      run: |
+        docker buildx version
+        docker buildx ls

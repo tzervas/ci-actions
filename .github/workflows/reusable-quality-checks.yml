@@ -1,0 +1,166 @@
+name: Code Quality Checks
+description: Reusable workflow for linting, formatting, and code quality checks
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: 'Programming language (python, rust, node, go)'
+        required: true
+        type: string
+      language-version:
+        description: 'Language version to use'
+        required: false
+        type: string
+        default: ''
+      checks:
+        description: 'Checks to run (comma-separated: lint,format,type,security)'
+        required: false
+        type: string
+        default: 'lint,format'
+      linter:
+        description: 'Linter to use (flake8, pylint, ruff, clippy, eslint)'
+        required: false
+        type: string
+        default: ''
+      formatter:
+        description: 'Formatter to use (black, rustfmt, prettier)'
+        required: false
+        type: string
+        default: ''
+      fail-on-error:
+        description: 'Fail workflow on lint/format errors'
+        required: false
+        type: boolean
+        default: true
+      working-directory:
+        description: 'Working directory for checks'
+        required: false
+        type: string
+        default: '.'
+
+permissions:
+  contents: read
+
+jobs:
+  quality-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Setup environment
+      - name: Setup Python
+        if: inputs.language == 'python'
+        uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: ${{ inputs.language-version || '3.12' }}
+      
+      - name: Setup Rust
+        if: inputs.language == 'rust'
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: ${{ inputs.language-version || 'stable' }}
+      
+      - name: Setup Node.js
+        if: inputs.language == 'node'
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: ${{ inputs.language-version || '20' }}
+      
+      - name: Setup Go
+        if: inputs.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.language-version || 'stable' }}
+      
+      # Python checks
+      - name: Python syntax check
+        if: inputs.language == 'python' && contains(inputs.checks, 'lint')
+        run: |
+          python -c "import compileall, sys; sys.exit(0 if compileall.compile_dir('.', quiet=1) else 1)"
+      
+      - name: Python lint (flake8)
+        if: inputs.language == 'python' && contains(inputs.checks, 'lint') && (inputs.linter == 'flake8' || inputs.linter == '')
+        run: |
+          pip install flake8
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Python lint (ruff)
+        if: inputs.language == 'python' && contains(inputs.checks, 'lint') && inputs.linter == 'ruff'
+        run: |
+          pip install ruff
+          ruff check .
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Python format check (black)
+        if: inputs.language == 'python' && contains(inputs.checks, 'format')
+        run: |
+          pip install black
+          black --check .
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Python type check (mypy)
+        if: inputs.language == 'python' && contains(inputs.checks, 'type')
+        run: |
+          pip install mypy
+          mypy . --ignore-missing-imports
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      # Rust checks
+      - name: Rust lint (clippy)
+        if: inputs.language == 'rust' && contains(inputs.checks, 'lint')
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Rust format check
+        if: inputs.language == 'rust' && contains(inputs.checks, 'format')
+        run: cargo fmt --all -- --check
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      # Node.js checks
+      - name: Node.js lint (eslint)
+        if: inputs.language == 'node' && contains(inputs.checks, 'lint')
+        run: |
+          npm install -g eslint
+          eslint . --ext .js,.jsx,.ts,.tsx
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Node.js format check (prettier)
+        if: inputs.language == 'node' && contains(inputs.checks, 'format')
+        run: |
+          npm install -g prettier
+          prettier --check .
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      # Go checks
+      - name: Go lint (golangci-lint)
+        if: inputs.language == 'go' && contains(inputs.checks, 'lint')
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+          golangci-lint run
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Go format check
+        if: inputs.language == 'go' && contains(inputs.checks, 'format')
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+        continue-on-error: ${{ !inputs.fail-on-error }}
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Code Quality Checks Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Language:** ${{ inputs.language }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Checks:** ${{ inputs.checks }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Quality checks completed" >> $GITHUB_STEP_SUMMARY

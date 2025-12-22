@@ -1,0 +1,37 @@
+name: Setup Node.js
+description: Setup Node.js environment with package manager caching
+
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+  package-manager:
+    description: 'Package manager to use (npm, yarn, pnpm)'
+    required: false
+    default: 'npm'
+  cache:
+    description: 'Enable package manager caching'
+    required: false
+    default: 'true'
+
+outputs:
+  node-version:
+    description: 'The installed Node.js version'
+    value: ${{ steps.setup-node.outputs.node-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js ${{ inputs.node-version }}
+      id: setup-node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ inputs.cache == 'true' && inputs.package-manager || '' }}
+    
+    - name: Verify installation
+      shell: bash
+      run: |
+        node --version
+        ${{ inputs.package-manager }} --version
