@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, podman]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ inputs.python-version }}

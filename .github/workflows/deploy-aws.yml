@@ -12,7 +12,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, podman]
     environment: production
     permissions:
       # Only specified permissions are granted - safer than write-all
