@@ -57,7 +57,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, podman]
     timeout-minutes: ${{ inputs.timeout-minutes }}
     defaults:
       run:
