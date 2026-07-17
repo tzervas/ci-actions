@@ -1,5 +1,10 @@
 # CI Actions
 
+<!-- FLEET-BADGES:BEGIN -->
+[![CI](https://github.com/tzervas/ci-actions/actions/workflows/fleet-ci.yml/badge.svg?branch=main)](https://github.com/tzervas/ci-actions/actions/workflows/fleet-ci.yml?query=branch%3Amain)
+[![Security](https://github.com/tzervas/ci-actions/actions/workflows/fleet-security.yml/badge.svg?branch=main)](https://github.com/tzervas/ci-actions/actions/workflows/fleet-security.yml?query=branch%3Amain)
+<!-- FLEET-BADGES:END -->
+
 This repository contains **reusable, composable, and parameterized** GitHub Actions workflows and composite actions for CI/CD tasks across multiple languages and platforms. Built for flexibility, security, and ease of use.
 
 **This project is in early phases of active development, all contents are subject to arbitrary change without notice at this time.**
